@@ -2,12 +2,13 @@ package com.autotyper.app
 
 import android.view.KeyEvent
 import android.view.inputmethod.InputConnection
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Singleton that owns the typing state and the background typing loop.
- * Lives in the app process so it survives IME service recreation.
- * The IME service plugs in its [connectionProvider]; everything else
- * (app UI, floating panel) just reads state and sends commands.
+ * Lives in the app process. The IME service plugs in its connection
+ * provider; the app UI / floating panel call start/pause/resume/stop
+ * directly (everything runs in the same process).
  */
 object TypingSession {
 
@@ -26,30 +27,17 @@ object TypingSession {
     @Volatile var config: TypeConfig = TypeConfig()
         private set
 
-    // Pending command set while the IME isn't running yet
-    @Volatile var pendingText: String? = null
-    @Volatile var pendingConfig: TypeConfig? = null
-
-    @Volatile var onStateChanged: (() -> Unit)? = null
-
+    private val listeners = CopyOnWriteArrayList<() -> Unit>()
     private var thread: Thread? = null
     private val lock = Any()
     @Volatile private var actions: List<TypeAction> = emptyList()
 
-    fun setPending(text: String, cfg: TypeConfig) {
-        pendingText = text
-        pendingConfig = cfg
-    }
-
-    fun clearPending() {
-        pendingText = null
-        pendingConfig = null
-    }
+    fun addListener(l: () -> Unit) = listeners.add(l)
+    fun removeListener(l: () -> Unit) = listeners.remove(l)
 
     fun start(text: String, cfg: TypeConfig) {
         stopInternal()
-        val engine = TypingEngine(cfg)
-        val built = engine.build(text)
+        val built = TypingEngine(cfg).build(text)
         synchronized(lock) { actions = built }
         config = cfg
         totalChars = built.size
@@ -63,50 +51,50 @@ object TypingSession {
     }
 
     private fun loop() {
-        var curIndex = 0
+        var cur = 0
         while (running) {
-            while (paused && running) {
-                sleepChunk(50)
-            }
+            while (paused && running) sleepChunk(50)
             if (!running) break
-            if (curIndex >= totalChars) {
+            if (cur >= totalChars) {
                 done = true
                 break
             }
+            // No focused text field yet? Wait quietly and retry.
             val conn = connectionProvider?.invoke()
             if (conn == null) {
-                // no focused text field yet — wait quietly
                 sleepChunk(120)
                 continue
             }
-            val action: TypeAction = synchronized(lock) { actions[curIndex] }
+            val action: TypeAction = synchronized(lock) { actions[cur] }
 
             // give the field a moment to settle on the very first keystroke
-            if (curIndex == 0) interruptibleSleep(450L + kotlin.random.Random.nextInt(300))
+            if (cur == 0) interruptibleSleep(450L + kotlin.random.Random.nextInt(300))
 
             interruptibleSleep(action.delayMs)
             if (!running) break
 
             when (action.type) {
-                ActionType.COMMIT -> conn.commitText(action.char.toString(), 1)
+                ActionType.COMMIT -> runCatching { conn.commitText(action.char.toString(), 1) }
                 ActionType.ENTER -> sendKey(conn, KeyEvent.KEYCODE_ENTER)
                 ActionType.TAB -> sendKey(conn, KeyEvent.KEYCODE_TAB)
-                ActionType.BACKSPACE -> conn.deleteSurroundingText(1, 0)
+                ActionType.BACKSPACE -> runCatching { conn.deleteSurroundingText(1, 0) }
             }
 
-            curIndex++
-            index = curIndex
+            cur++
+            index = cur
             notifyState()
         }
         running = false
         paused = false
-        index = curIndex
+        index = cur
         notifyState()
     }
 
     private fun sendKey(conn: InputConnection, code: Int) {
-        conn.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
-        conn.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+        runCatching {
+            conn.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
+            conn.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
+        }
     }
 
     private fun interruptibleSleep(ms: Long) {
@@ -143,7 +131,7 @@ object TypingSession {
         index = 0
     }
 
-    fun notifyState() {
-        onStateChanged?.invoke()
+    private fun notifyState() {
+        listeners.forEach { runCatching { it() } }
     }
 }

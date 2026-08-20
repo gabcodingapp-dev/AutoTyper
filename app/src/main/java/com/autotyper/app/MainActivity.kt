@@ -31,6 +31,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -60,13 +61,19 @@ class MainActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     private val refresh = mutableStateOf(0)
+    private val crashText = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        crashText.value = CrashLog.read(this)
+
         if (Settings.canDrawOverlays(this)) {
-            startService(Intent(this, FloatingPanelService::class.java))
+            try {
+                startService(Intent(this, FloatingPanelService::class.java))
+            } catch (_: Exception) {
+            }
         }
         requestNotificationPermission()
 
@@ -74,6 +81,22 @@ class MainActivity : ComponentActivity() {
             AutoTyperTheme {
                 val tick = refresh.value // read so we recompose on resume
                 HomeScreen(tick)
+
+                crashText.value?.let { msg ->
+                    AlertDialog(
+                        onDismissRequest = { },
+                        title = { Text("The app crashed last time", fontWeight = FontWeight.Bold) },
+                        text = { Text(msg.take(1600), fontSize = 11.sp) },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                CrashLog.clear(this)
+                                crashText.value = null
+                            }) {
+                                Text("Got it")
+                            }
+                        }
+                    )
+                }
             }
         }
     }
@@ -153,7 +176,7 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, "Enable the AutoTyper keyboard first (Setup below)", Toast.LENGTH_LONG).show()
             return
         }
-        Commands.sendStart(this, text, wpm, humanity)
+        TypingSession.start(text, TypeConfig(wpm, humanity))
         if (isImeActive()) {
             Toast.makeText(this, "Now tap the field you want to type into", Toast.LENGTH_LONG).show()
         } else {
@@ -296,8 +319,8 @@ class MainActivity : ComponentActivity() {
             Button(
                 onClick = {
                     when {
-                        typing && paused -> Commands.sendResume(ctx)
-                        typing -> Commands.sendPause(ctx)
+                        typing && paused -> TypingSession.resume()
+                        typing -> TypingSession.pause()
                         else -> startTyping(text, wpm.toInt(), humanity)
                     }
                 },
@@ -324,7 +347,7 @@ class MainActivity : ComponentActivity() {
             if (typing) {
                 Spacer(Modifier.height(10.dp))
                 Button(
-                    onClick = { Commands.sendStop(ctx) },
+                    onClick = { TypingSession.stop() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(48.dp),

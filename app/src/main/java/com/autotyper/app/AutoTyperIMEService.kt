@@ -1,15 +1,10 @@
 package com.autotyper.app
 
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
-import android.view.inputmethod.EditorInfo
 import android.widget.TextView
 
 /**
@@ -20,49 +15,13 @@ import android.widget.TextView
 class AutoTyperIMEService : InputMethodService() {
 
     private val handler = Handler(Looper.getMainLooper())
-    private lateinit var receiver: BroadcastReceiver
     private var statusView: TextView? = null
+    private val stateListener = { handler.post { updateStatus() } }
 
     override fun onCreate() {
         super.onCreate()
         TypingSession.connectionProvider = { currentInputConnection }
-
-        receiver = object : BroadcastReceiver() {
-            override fun onReceive(context: Context, intent: Intent) {
-                when (intent.action) {
-                    Commands.ACTION_START -> {
-                        val text = intent.getStringExtra(Commands.EXTRA_TEXT) ?: return
-                        val wpm = intent.getIntExtra(Commands.EXTRA_WPM, 60)
-                        val humanity = intent.getFloatExtra(Commands.EXTRA_HUMANITY, 0.5f)
-                        TypingSession.clearPending()
-                        TypingSession.start(text, TypeConfig(wpm, humanity))
-                    }
-                    Commands.ACTION_PAUSE -> TypingSession.pause()
-                    Commands.ACTION_RESUME -> TypingSession.resume()
-                    Commands.ACTION_STOP -> TypingSession.stop()
-                }
-            }
-        }
-        val filter = IntentFilter().apply {
-            addAction(Commands.ACTION_START)
-            addAction(Commands.ACTION_PAUSE)
-            addAction(Commands.ACTION_RESUME)
-            addAction(Commands.ACTION_STOP)
-        }
-        registerReceiver(receiver, filter)
-
-        TypingSession.onStateChanged = { handler.post { updateStatus() } }
-    }
-
-    override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
-        super.onStartInputView(info, restarting)
-        // A field just gained focus — consume any pending start command.
-        val pendingText = TypingSession.pendingText
-        if (pendingText != null) {
-            val cfg = TypingSession.pendingConfig ?: TypeConfig()
-            TypingSession.clearPending()
-            handler.postDelayed({ TypingSession.start(pendingText, cfg) }, 350)
-        }
+        TypingSession.addListener(stateListener)
     }
 
     override fun onCreateInputView(): View {
@@ -89,7 +48,7 @@ class AutoTyperIMEService : InputMethodService() {
     }
 
     override fun onDestroy() {
-        unregisterReceiver(receiver)
+        TypingSession.removeListener(stateListener)
         super.onDestroy()
     }
 }

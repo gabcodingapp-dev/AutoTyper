@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Handler
@@ -31,6 +32,7 @@ class FloatingPanelService : Service() {
 
     private lateinit var wm: WindowManager
     private val handler = Handler(Looper.getMainLooper())
+    private val stateListener = { handler.post { updateUI() } }
 
     private var panel: View? = null
     private var pill: View? = null
@@ -57,8 +59,8 @@ class FloatingPanelService : Service() {
         super.onCreate()
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         createChannel()
-        startForeground(NOTIF_ID, buildNotification())
-        TypingSession.onStateChanged = { handler.post { updateUI() } }
+        startForegroundCompat()
+        TypingSession.addListener(stateListener)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -67,6 +69,17 @@ class FloatingPanelService : Service() {
         }
         ensureVisible()
         return START_STICKY
+    }
+
+    private fun startForegroundCompat() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(
+                NOTIF_ID, buildNotification(),
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+            )
+        } else {
+            startForeground(NOTIF_ID, buildNotification())
+        }
     }
 
     private fun ensureVisible() {
@@ -114,8 +127,8 @@ class FloatingPanelService : Service() {
 
         v.findViewById<View>(R.id.btn_collapse).setOnClickListener { collapse() }
         v.findViewById<View>(R.id.btn_play).setOnClickListener { onPlay() }
-        v.findViewById<View>(R.id.btn_pause).setOnClickListener { Commands.sendPause(this) }
-        v.findViewById<View>(R.id.btn_stop).setOnClickListener { Commands.sendStop(this) }
+        v.findViewById<View>(R.id.btn_pause).setOnClickListener { TypingSession.pause() }
+        v.findViewById<View>(R.id.btn_stop).setOnClickListener { TypingSession.stop() }
         return v
     }
 
@@ -178,7 +191,7 @@ class FloatingPanelService : Service() {
 
     private fun onPlay() {
         if (TypingSession.running) {
-            if (TypingSession.paused) Commands.sendResume(this)
+            if (TypingSession.paused) TypingSession.resume()
             return
         }
         val text = Prefs.getLastText(this)
@@ -186,7 +199,7 @@ class FloatingPanelService : Service() {
             Toast.makeText(this, "Set your text in the AutoTyper app first", Toast.LENGTH_SHORT).show()
             return
         }
-        Commands.sendStart(this, text, Prefs.getWpm(this), Prefs.getHumanity(this))
+        TypingSession.start(text, TypeConfig(Prefs.getWpm(this), Prefs.getHumanity(this)))
         updateUI()
     }
 
@@ -257,6 +270,7 @@ class FloatingPanelService : Service() {
     }
 
     override fun onDestroy() {
+        TypingSession.removeListener(stateListener)
         super.onDestroy()
     }
 }
