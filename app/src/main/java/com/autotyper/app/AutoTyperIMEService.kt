@@ -7,6 +7,7 @@ import android.content.IntentFilter
 import android.inputmethodservice.InputMethodService
 import android.os.Handler
 import android.os.Looper
+import android.view.LayoutInflater
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.widget.TextView
@@ -65,7 +66,7 @@ class AutoTyperIMEService : InputMethodService() {
     }
 
     override fun onCreateInputView(): View {
-        val v = layoutInflater.inflate(R.layout.ime_view, null)
+        val v = LayoutInflater.from(this).inflate(R.layout.ime_view, null)
         statusView = v.findViewById(R.id.ime_status)
         v.findViewById<View>(R.id.ime_stop).setOnClickListener { TypingSession.stop() }
         updateStatus()

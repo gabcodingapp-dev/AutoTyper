@@ -13,6 +13,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
@@ -107,7 +108,7 @@ class FloatingPanelService : Service() {
     }
 
     private fun inflatePanel(): View {
-        val v = layoutInflater.inflate(R.layout.floating_panel, null)
+        val v = LayoutInflater.from(this).inflate(R.layout.floating_panel, null)
         makeDraggable(v.findViewById(R.id.drag_handle), { panelLp }, { snapAndSave(v, panelLp) })
         makeDraggable(v.findViewById(R.id.panel_title), { panelLp }, { snapAndSave(v, panelLp) })
 
@@ -119,7 +120,7 @@ class FloatingPanelService : Service() {
     }
 
     private fun inflatePill(): View {
-        val v = layoutInflater.inflate(R.layout.floating_pill, null)
+        val v = LayoutInflater.from(this).inflate(R.layout.floating_pill, null)
         makeDraggable(v, { pillLp }, { snapAndSave(v, pillLp) })
         v.setOnClickListener {
             if (!moved) expand()
