@@ -7,7 +7,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.inputmethod.InputMethodManager
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -65,41 +67,67 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge()
 
-        crashText.value = CrashLog.read(this)
-
-        if (Settings.canDrawOverlays(this)) {
-            try {
-                startService(Intent(this, FloatingPanelService::class.java))
-            } catch (_: Exception) {
-            }
-        }
-        requestNotificationPermission()
-
-        setContent {
-            AutoTyperTheme {
-                val tick = refresh.value // read so we recompose on resume
-                HomeScreen(tick)
-
-                crashText.value?.let { msg ->
-                    AlertDialog(
-                        onDismissRequest = { },
-                        title = { Text("The app crashed last time", fontWeight = FontWeight.Bold) },
-                        text = { Text(msg.take(1600), fontSize = 11.sp) },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                CrashLog.clear(this)
-                                crashText.value = null
-                            }) {
-                                Text("Got it")
-                            }
-                        }
-                    )
+        var startupError: String? = null
+        try {
+            enableEdgeToEdge()
+            crashText.value = CrashLog.read(this)
+            if (Settings.canDrawOverlays(this)) {
+                try {
+                    startService(Intent(this, FloatingPanelService::class.java))
+                } catch (t: Throwable) {
+                    Log.e("AutoTyper", "startService failed", t)
                 }
             }
+            requestNotificationPermission()
+        } catch (t: Throwable) {
+            Log.e("AutoTyper", "startup failure", t)
+            startupError = t.toString() + "\n" + t.stackTraceToString().take(600)
+        }
+
+        try {
+            setContent {
+                AutoTyperTheme {
+                    val tick = refresh.value // read so we recompose on resume
+                    val banner = crashText.value ?: startupError
+                    HomeScreen(tick, banner)
+
+                    crashText.value?.let { msg ->
+                        AlertDialog(
+                            onDismissRequest = { },
+                            title = { Text("The app crashed last time", fontWeight = FontWeight.Bold) },
+                            text = { Text(msg.take(1600), fontSize = 11.sp) },
+                            confirmButton = {
+                                TextButton(onClick = {
+                                    CrashLog.clear(this)
+                                    crashText.value = null
+                                }) {
+                                    Text("Got it")
+                                }
+                            }
+                        )
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            Log.e("AutoTyper", "Compose failed", t)
+            CrashLog.write(this, t.stackTraceToString())
+            showFallbackError(t)
         }
     }
+
+    private fun showFallbackError(t: Throwable) {
+        val tv = TextView(this)
+        tv.setBackgroundColor(android.graphics.Color.BLACK)
+        tv.setTextColor(android.graphics.Color.WHITE)
+        tv.textSize = 13f
+        tv.setPadding(dp(20), dp(40), dp(20), dp(20))
+        tv.text = "AutoTyper hit an error:\n\n" + t.toString() + "\n\n" +
+            t.stackTraceToString().take(1500)
+        setContentView(tv)
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     override fun onResume() {
         super.onResume()
@@ -188,7 +216,7 @@ class MainActivity : ComponentActivity() {
     // ---------- UI ----------
 
     @Composable
-    private fun HomeScreen(@Suppress("UNUSED_PARAMETER") tick: Int) {
+    private fun HomeScreen(@Suppress("UNUSED_PARAMETER") tick: Int, banner: String?) {
         val ctx = LocalContext.current
         var text by remember { mutableStateOf(Prefs.getLastText(ctx)) }
         var wpm by remember { mutableStateOf(Prefs.getWpm(ctx).toFloat()) }
@@ -206,6 +234,20 @@ class MainActivity : ComponentActivity() {
                 .systemBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 16.dp)
         ) {
+            if (banner != null) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF331111), RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Text("⚠ An error was caught", color = Color(0xFFFF8080), fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(banner, color = Color(0xFFDDDDDD), fontSize = 11.sp)
+                }
+                Spacer(Modifier.height(16.dp))
+            }
+
             // Header
             Row(
                 Modifier.fillMaxWidth(),

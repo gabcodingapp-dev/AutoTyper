@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -59,16 +60,26 @@ class FloatingPanelService : Service() {
         super.onCreate()
         wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         createChannel()
-        startForegroundCompat()
+        try {
+            startForegroundCompat()
+        } catch (t: Throwable) {
+            Log.e("AutoTyper", "startForeground failed", t)
+        }
         TypingSession.addListener(stateListener)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_TOGGLE) {
-            if (collapsed) expand() else collapse()
+        return try {
+            if (intent?.action == ACTION_TOGGLE) {
+                if (collapsed) expand() else collapse()
+            }
+            ensureVisible()
+            START_STICKY
+        } catch (t: Throwable) {
+            Log.e("AutoTyper", "onStartCommand failed", t)
+            stopSelf()
+            START_NOT_STICKY
         }
-        ensureVisible()
-        return START_STICKY
     }
 
     private fun startForegroundCompat() {
