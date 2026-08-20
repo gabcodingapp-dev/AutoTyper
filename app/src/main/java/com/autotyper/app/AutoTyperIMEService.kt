@@ -16,7 +16,7 @@ class AutoTyperIMEService : InputMethodService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var statusView: TextView? = null
-    private val stateListener = { handler.post { updateStatus() } }
+    private val stateListener: () -> Unit = { handler.post { updateStatus() } }
 
     override fun onCreate() {
         super.onCreate()

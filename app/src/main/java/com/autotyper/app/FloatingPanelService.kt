@@ -32,7 +32,7 @@ class FloatingPanelService : Service() {
 
     private lateinit var wm: WindowManager
     private val handler = Handler(Looper.getMainLooper())
-    private val stateListener = { handler.post { updateUI() } }
+    private val stateListener: () -> Unit = { handler.post { updateUI() } }
 
     private var panel: View? = null
     private var pill: View? = null
